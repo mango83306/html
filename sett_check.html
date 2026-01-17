@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="renderer" content="webkit" />
+    <title>结算校验</title>
+    <script src="common/js/utils/commonUtils.js"></script>
+    <script src="common/libs/vue/vue.js"></script>
+    <style type="text/css">
+        .btn{display:inline-block;line-height:1;white-space:nowrap;cursor:pointer;color:#FFF;background-color:#67C23A;border-color:#67C23A;-webkit-appearance:none;text-align:center;-webkit-box-sizing:border-box;box-sizing:border-box;outline:0;margin:0;-webkit-transition:.1s;transition:.1s;font-weight:500;padding:12px 20px;font-size:14px;border-radius:4px}
+        .btn_danger{background-color: #F56C6C;border-color: #F56C6C}
+        .pre{overflow:auto;padding:5px;border:1px solid #DCDFE6;}
+        input{padding:5px 10px;border-radius: 4px;border: 1px solid #DCDFE6;box-sizing: border-box;color: #606266;}
+    </style>
+</head>
+<body>
+<div id="app">
+    <div style="position:fixed;left:0;top:0;width:100vw;height:100vh;background:white;">
+        <div style="text-align:center;padding:25px;">
+            <button class="btn btn_danger" @click="settCheck.content=''">清空内容</button>
+            <input style="width:80px;" placeholder="汇率" size="mini" v-model="settCheck.rate"/>
+            <button class="btn" @click="copyResult()">复制结果</button>
+        </div>
+        <textarea class="pre" v-model="settCheck.content" style="position:absolute;top:80px;left:2px;width:calc(50vw - 15px);height:calc(99vh - 100px);font-size:16px;"></textarea>
+        <textarea class="pre" v-model="settCheck.result" style="position:absolute;top:80px;right:2px;width:calc(50vw - 15px);height:calc(99vh - 100px);font-size:16px;"></textarea>
+    </div>
+</div>
+
+<script>
+    var vm = null;
+    new Vue({
+        el: '#app',
+        data: {
+            settCheck: {rate:156.78, content: "测试：  -500  \nMessi－1100\nTrump:1000\nK：800", result: ""},
+        },
+        watch: {
+            "settCheck.content": val => vm.settCheckVal(val),
+            "settCheck.rate": _ => vm.settCheckVal(vm.settCheck.content)
+        },
+        created() {
+            vm = this;
+            vm.initSettCheck();
+        },
+        methods: {
+            // 结算校验
+            settCheckVal(val){
+                let check = {pNum: 0, nNum: 0}, rate = parseFloat(vm.settCheck.rate) || 1, uMap = {};
+                let userPrint = (arr,rate) => arr.map(o => `${o.name.padStart(7,' ')}: ${parseInt(o.num/rate*100)/100}`).join("\n");
+                val.trim().split("\n").forEach(s => {
+                    s = s.replaceAll("－", "-").replace(/[:：\s\u3000]+/g, '');
+                    // 的加上:分割
+                    let match = s.match(/-?\d/), mIdx = match ? match.index : 0;
+                    s = mIdx ? s.slice(0, mIdx) + ':' + s.slice(mIdx) : s;
+                    let sp = s.split(":"), name = sp[0], num = parseFloat((sp[1] || "").replace(/[^-\d]/g, '') || 0);
+                    if (name) {
+                        (uMap[name] = uMap[name] || {name: name, num: 0}).num += num;
+                        check[num > 0 ? "pNum" : "nNum"] += num;
+                    }
+                });
+                let arr = Object.values(uMap).sort((a, b) => b.num - a.num);
+                vm.settCheck.result = `${userPrint(arr, 1)}\n-----------------\n正总和: ${check.pNum}\n负总和: ${check.nNum}\n总误差: ${check.nNum + check.pNum}`
+                    + `\n\n-----------------\n换算汇率: ${rate}\n-----------------\n${userPrint(arr, rate)}`;
+            },
+            initSettCheck() {
+                vm.settCheckVal(vm.settCheck.content);
+                let rateCacheKey = 'settCheckRate',rate = Utils.cache(rateCacheKey);
+                let setRate = () => vm.settCheck.rate = parseFloat(Utils.cache(rateCacheKey));
+                if (rate) {
+                    setRate();
+                } else {
+                    fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=JPY').then(response => response.json())
+                        .then(r => {
+                            Utils.cache(rateCacheKey, ""+r.tether.jpy, 180);
+                            setRate();
+                        });
+                }
+            },
+            copyResult:()=>Utils.copyToClipboard(vm.settCheck.result)
+        },
+    });
+</script>
+
+</body>
+</html>
